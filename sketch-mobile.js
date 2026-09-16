@@ -78,8 +78,9 @@ function draw() {
   imageMode(CENTER);
   image(img, imgX, imgY, imgSize, imgSize);
 
-  //Spawn a new pair of ice cubes from each eye every 10 frames
-  if (frameCount % 10 === 0) {
+  //Spawn a new pair of ice cubes from each eye every 20 frames
+  //Kept lower than desktop so fewer cubes exist at once, since phones lag with too many on screen
+  if (frameCount % 20 === 0) {
     iceCubes.push(new IceCube(leftEye.x, leftEye.y));
     iceCubes.push(new IceCube(rightEye.x, rightEye.y));
   }
@@ -136,7 +137,9 @@ class IceCube {
     //Start near the eye with a small random offset so cubes do not stack perfectly
     this.x = x + random(-5, 5) * unit;
     this.y = y;
-    this.speedY = random(2, 5) * unit;
+    //Faster fall speed than before, this is how the ice actually falls quicker
+    //without needing more cubes on screen at once (which was causing the phone to lag)
+    this.speedY = random(4, 9) * unit;
     this.speedX = random(-1, 1) * unit;
     this.rotation = random(0, TWO_PI);
     this.rotSpeed = random(-0.05, 0.05);
