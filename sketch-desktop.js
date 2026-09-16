@@ -99,7 +99,7 @@ function draw() {
   //Title text sits inside the top band reserved by layout, split across two lines
   push();
   fill('black'); stroke(10); textSize(ts); textAlign(CENTER, TOP);
-  text("Hayley's ice is\ngetting warmer!", width / 2, ts * 0.6);
+  text("Hayley's OJ is\ngetting warmer!", width / 2, ts * 0.6);
   pop();
 
   //Score text sits inside the bottom band reserved by layout
