@@ -3,6 +3,9 @@
 
 //Image, emoji, and font assets loaded once before the sketch starts
 let img, emojiX, emojiY, scoreFont;
+let clinkSound;
+let lastClinkAt = 0;
+const CLINK_GAP_MS = 70; //ice comes fast, so clinks are spaced out a little to avoid a wall of noise
 
 //Active falling ice cubes, the running score, and how many cubes hit the floor
 let iceCubes = [];
@@ -30,10 +33,11 @@ let leftEye, rightEye;
 
 function preload() {
   //Preload runs before setup, so every asset is ready before the first draw
-  img      = loadImage('assets/Hayley.png');
+  img      = loadImage('assets/Hayley.webp');
   emojiX   = loadImage('assets/OJ.webp');
   emojiY   = loadImage('assets/Ice.webp');
   scoreFont = loadFont('assets/GeistMono-Bold.ttf');
+  clinkSound = loadSoundEffect('assets/clink.wav'); //see hud.js
 }
 
 function setup() {
@@ -89,6 +93,14 @@ function draw() {
   const glassSize   = min(width, height) * (isMobile ? 0.18 : 0.12);
   const catchRadius = glassSize * (isMobile ? 0.65 : 0.6);
 
+  //Wait on the "Tap to play" screen until the first tap or click (see hud.js)
+  if (!started) {
+    drawHUD();
+    drawStartScreen();
+    image(emojiX, mouseX, mouseY, glassSize, glassSize);
+    return;
+  }
+
   if (gameOver) {
     drawHUD();
     drawRetryScreen();
@@ -114,6 +126,11 @@ function draw() {
     if (dist(iceCubes[i].x, iceCubes[i].y, mouseX, mouseY) < catchRadius) {
       iceCubes.splice(i, 1);
       score++;
+      //A slightly different pitch each time so repeated clinks do not sound robotic
+      if (millis() - lastClinkAt > CLINK_GAP_MS) {
+        playSoundEffect(clinkSound, 0.6, random(0.9, 1.2));
+        lastClinkAt = millis();
+      }
       continue;
     }
 
@@ -142,20 +159,24 @@ function drawHUD() {
 // The headline, scoreboard, retry screen, and speed-ups live in hud.js, shared by every game
 
 function mousePressed() {
-  attemptRetry();
+  if (!handleStartTap(resetGame)) attemptRetry();
 }
 
 function touchStarted() {
-  //p5 does not run mousePressed once touchStarted exists, so taps retry from here
-  attemptRetry();
+  //p5 does not run mousePressed once touchStarted exists, so taps start/retry from here
+  if (!handleStartTap(resetGame)) attemptRetry();
   //Block the default touch behaviour so the page does not scroll or refresh
   return false;
 }
 
-//Resets the game back to its starting state, only once the game is over
+//Starts a new round, but only once the game is over
 function attemptRetry() {
   if (!gameOver) return;
+  resetGame();
+}
 
+//Resets the game back to its starting state (used for the first tap and every retry)
+function resetGame() {
   score = 0;
   missed = 0;
   iceCubes = [];
