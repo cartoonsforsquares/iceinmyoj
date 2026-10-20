@@ -1,25 +1,17 @@
 # Ice in my oj
 
-## Getting Started
+Inspired by the Hayley Williams song Ice In My OJ, I made a silly goofy game. The players use a glass of orange juice as their cursor while collecting ice falling out of Hayley's eyes.
 
-Open `index.html` in your web browser and start editing `sketch.js`.
+**Play:** https://cartoonsforsquares.github.io/iceinmyoj/
+
+One link works on both desktop and phones. `sketch.js` checks for a touch screen (`isMobile`) and adjusts text size, glass size, and how fast the ice falls.
 
 ## Running Locally
 
 For projects with media files, use a local server:
 
 ```bash
-# Using Python
-python -m http.server 8000
-
-# Using Node.js
-npx http-server
-
-# Using VS Code Live Server extension
-# Right-click index.html -> "Open with Live Server"
+python3 -m http.server 8000
 ```
 
-## Resources
-
-- [p5.js 2.0](https://beta.p5js.org/)
-- [p5.js Reference](https://p5js.org/reference/)
+Then open http://localhost:8000

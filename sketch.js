@@ -1,45 +1,75 @@
 
-//Version 3.0
+//Version 4.0, one sketch for both desktop and mobile
 
-let img, emojiX, emojiY, moreFont;
+//Image, emoji, and font assets loaded once before the sketch starts
+let img, emojiX, emojiY, scoreFont;
+
+//Active falling ice cubes, the running score, and how many cubes hit the floor
 let iceCubes = [];
 let score = 0;
+let missed = 0;
+let gameOver = false;
+let lastSpawnFrame = 0;
 
-// Eyes as a FRACTION of the image (0–1). Tune these two if the ice
-// doesn't pour exactly from her eyes (see calibration note below).
+const MAX_MISSED  = 20; //game stops once this many ice cubes have been missed
+const LEVEL_EVERY = 50; //game speeds up every 50 ice cubes (see hud.js); higher than the other games
+                        //because ice comes so fast that 50 here takes about as long as 20 there
+const MAX_SPREAD  = 12; //how much wider the ice sprays sideways at max chaos
+
+//True on touch devices (phones/tablets); detected once in setup()
+let isMobile = false;
+
+//Eyes are stored as a fraction of the image (0 to 1), not fixed pixels
+//Tune these two values if the ice does not pour exactly from her eyes
 let leftEyeF  = { x: 0.452, y: 0.334 };
 let rightEyeF = { x: 0.578, y: 0.337 };
 
-// computed each frame
+//Layout values recalculated every frame so resizing or rotating stays correct
 let imgSize, imgX, imgY, unit;
 let leftEye, rightEye;
 
 function preload() {
-  img      = loadImage('Assets/Hayley.png');
-  emojiX   = loadImage('Assets/OJ.webp');
-  emojiY   = loadImage('Assets/Ice.webp');
-  moreFont = loadFont('Assets/Kamryn.otf');
+  //Preload runs before setup, so every asset is ready before the first draw
+  img      = loadImage('assets/Hayley.png');
+  emojiX   = loadImage('assets/OJ.webp');
+  emojiY   = loadImage('assets/Ice.webp');
+  scoreFont = loadFont('assets/GeistMono-Bold.ttf');
 }
 
 function setup() {
+  //Detect touch devices once, so sizes and speeds can adapt to fingers vs a cursor
+  isMobile = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+
+  //Canvas fills the window and stays that size until it is resized or rotated
   createCanvas(windowWidth, windowHeight);
   textAlign(CENTER, CENTER);
+
+  //Stop the page from scrolling or zooming while the player drags a finger
   const c = document.querySelector('canvas');
   if (c) c.style.touchAction = 'none';
 }
 
 function windowResized() {
+  //Keep the canvas matched to the window whenever it resizes or the phone rotates
   resizeCanvas(windowWidth, windowHeight);
 }
 
 function layout() {
-  const portrait = height >= width;
-  // face fills width on phones, fits height on desktop
-  imgSize = portrait ? width * 1.15 : min(height * 0.95, width);
-  imgX = width / 2;
-  imgY = height / 2;
-  unit = imgSize / 1358;            // scales physics & emoji to face size
+  //The image fits in the space between the headline and the scoreboard (sizes come from hud.js)
+  const hud = hudLayout();
+  const areaTop = hud.headBottom + hud.ts * 0.5;
+  const availH = max(100, hud.scoreTop - hud.ts * 0.5 - areaTop);
 
+  //Desktop windows are wide, so the image is capped by height
+  //Phones are narrow, so the image is allowed to reach the edges of the screen
+  const maxByWidth = width * (isMobile ? 1.0 : 0.6);
+  imgSize = min(maxByWidth, availH);
+
+  imgX = width / 2;
+  imgY = areaTop + availH / 2;
+  unit = imgSize / 1358;
+
+  //Eye positions are derived from the image's current top left corner and size
   const left = imgX - imgSize / 2;
   const top  = imgY - imgSize / 2;
   leftEye  = { x: left + leftEyeF.x  * imgSize, y: top + leftEyeF.y  * imgSize };
@@ -47,295 +77,115 @@ function layout() {
 }
 
 function draw() {
-  background(220);
+  background(CREAM);
   layout();
 
+  //Draw the main face image centered in the space left over after the text bands
   imageMode(CENTER);
   image(img, imgX, imgY, imgSize, imgSize);
 
-  if (frameCount % 15 === 0) {
-    iceCubes.push(new IceCube(leftEye.x, leftEye.y));
-    iceCubes.push(new IceCube(rightEye.x, rightEye.y));
+  //Glass size is based on the smaller of width or height
+  //Larger on mobile so it is easy to hit with a finger
+  const glassSize   = min(width, height) * (isMobile ? 0.18 : 0.12);
+  const catchRadius = glassSize * (isMobile ? 0.65 : 0.6);
+
+  if (gameOver) {
+    drawHUD();
+    drawRetryScreen();
+    image(emojiX, mouseX, mouseY, glassSize, glassSize);
+    return;
   }
 
-  const glassSize  = min(width, height) * 0.16;   // finger-friendly
-  const catchRadius = glassSize * 0.6;
+  checkLevelUp();
+
+  //Spawn a new pair of ice cubes from each eye every 15 frames (20 on mobile)
+  //Fewer on mobile so fewer cubes exist at once, since phones lag with too many on screen
+  if (frameCount - lastSpawnFrame >= (isMobile ? 20 : 15)) {
+    iceCubes.push(new IceCube(leftEye.x, leftEye.y));
+    iceCubes.push(new IceCube(rightEye.x, rightEye.y));
+    lastSpawnFrame = frameCount;
+  }
 
   for (let i = iceCubes.length - 1; i >= 0; i--) {
     iceCubes[i].update();
     iceCubes[i].display();
 
+    //Catch a cube if the cursor or finger is close enough to it
     if (dist(iceCubes[i].x, iceCubes[i].y, mouseX, mouseY) < catchRadius) {
       iceCubes.splice(i, 1);
       score++;
       continue;
     }
-    if (iceCubes[i].y > height) iceCubes.splice(i, 1);
+
+    //Cubes that fall past the bottom of the canvas count as missed
+    //Misses only start counting after the first catch, so the game cannot end
+    //before the player has found the glass
+    if (iceCubes[i].y > height) {
+      iceCubes.splice(i, 1);
+      if (score > 0) missed++;
+      if (missed >= MAX_MISSED) gameOver = true;
+    }
   }
 
-  // responsive text
-  const ts = constrain(width * 0.045, 16, 44);
-  textFont(moreFont);
+  drawHUD();
+  drawLevelBanner();
 
-  push();
-  fill('black'); stroke(10); textSize(ts); textAlign(CENTER, TOP);
-  text("Hayley's OJ is getting warmer\ncollect her ice!", width / 2, ts * 0.6);
-  pop();
-
-  push();
-  fill('black'); stroke(10); textSize(ts); textAlign(CENTER, BOTTOM);
-  text(`Ice collected: ${score}`, width / 2, height - ts * 0.8);
-  pop();
-
-  // OJ glass follows finger / cursor
+  //The OJ glass follows the mouse cursor on desktop and the finger on mobile
   image(emojiX, mouseX, mouseY, glassSize, glassSize);
 }
 
-function touchStarted() { return false; }
-function touchMoved()  { return false; }
+function drawHUD() {
+  drawHeadline("Hayley's OJ is\ngetting warmer!");
+  drawScoreboard(`Ice: ${score}   Missed: ${missed}`);
+}
+
+// The headline, scoreboard, retry screen, and speed-ups live in hud.js, shared by every game
+
+function mousePressed() {
+  attemptRetry();
+}
+
+function touchStarted() {
+  //p5 does not run mousePressed once touchStarted exists, so taps retry from here
+  attemptRetry();
+  //Block the default touch behaviour so the page does not scroll or refresh
+  return false;
+}
+
+//Resets the game back to its starting state, only once the game is over
+function attemptRetry() {
+  if (!gameOver) return;
+
+  score = 0;
+  missed = 0;
+  iceCubes = [];
+  gameOver = false;
+  resetLevels();
+  lastSpawnFrame = frameCount;
+}
+
+function touchMoved() {
+  //Block the default touch behaviour so dragging does not scroll the page
+  return false;
+}
 
 class IceCube {
   constructor(x, y) {
+    //Start near the eye with a small random offset so cubes do not stack perfectly
     this.x = x + random(-5, 5) * unit;
     this.y = y;
-    this.speedY = random(2, 5) * unit;
-    this.speedX = random(-1, 1) * unit;
+    //Faster fall on mobile, so the ice still feels quick without more cubes on screen
+    //Both get faster as the game speeds up, and the ice sprays wider sideways
+    const spread = 1 + MAX_SPREAD * (chaos() - 1) / (MAX_CHAOS - 1);
+    this.speedY = (isMobile ? random(4, 9) : random(2, 5)) * unit * chaos();
+    this.speedX = random(-1, 1) * unit * spread;
     this.rotation = random(0, TWO_PI);
     this.rotSpeed = random(-0.05, 0.05);
     this.size = 45 * unit;
   }
-  update() { this.y += this.speedY; this.x += this.speedX; this.rotation += this.rotSpeed; }
-  display() {
-    push();
-    translate(this.x, this.y);
-    rotate(this.rotation);
-    textSize(this.size);
-    image(emojiY, 0, 0, this.size, this.size);
-    pop();
-  }
-}
-
-/* VERSION 2.0
-
-let img, emoji, moreFont;
-let iceCubes = [];
-let score = 0;
-
-// The screen you ORIGINALLY designed on. Set these to match, then don't touch.
-const DESIGN_W = 2560;
-const DESIGN_H = 1440;
-
-// Eyes stay in design-space coords (unchanged)
-let leftEye  = { x: 1215, y: 495 };
-let rightEye = { x: 1386, y: 498 };
-
-let s = 1, offX = 0, offY = 0;   // transform, recomputed each frame
-
-function preload() {
-  img     = loadImage('Assets/Hayley.png');
-  emoji   = loadImage('Assets/OJ.webp');
-  moreFont = loadFont('Assets/Basteleur-Bold.otf');
-}
-
-function setup() {
-  createCanvas(windowWidth, windowHeight);
-  textAlign(CENTER, CENTER);
-  const c = document.querySelector('canvas');   // stop mobile scroll/zoom on drag
-  if (c) c.style.touchAction = 'none';
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-}
-
-// pointer -> design space
-const px = () => (mouseX - offX) / s;
-const py = () => (mouseY - offY) / s;
-
-function draw() {
-  background(220);
-
-  // fit-to-screen (letterboxed) transform
-  s = min(windowWidth / DESIGN_W, windowHeight / DESIGN_H);
-  offX = (windowWidth  - DESIGN_W * s) / 2;
-  offY = (windowHeight - DESIGN_H * s) / 2;
-
-  push();
-  translate(offX, offY);
-  scale(s);
-  // ---- everything below uses your original coordinates ----
-
-  imageMode(CENTER);
-  image(img, DESIGN_W / 2, DESIGN_H / 2, 1358, 1358);
-
-  const mx = px(), my = py();
-
-  if (frameCount % 15 === 0) {
-    iceCubes.push(new IceCube(leftEye.x, leftEye.y));
-    iceCubes.push(new IceCube(rightEye.x, rightEye.y));
-  }
-
-  for (let i = iceCubes.length - 1; i >= 0; i--) {
-    iceCubes[i].update();
-    iceCubes[i].display();
-
-    if (dist(iceCubes[i].x, iceCubes[i].y, mx, my) < 50) {
-      iceCubes.splice(i, 1);
-      score++;
-      continue;
-    }
-    if (iceCubes[i].y > DESIGN_H) iceCubes.splice(i, 1);
-  }
-
-  push();
-  fill('black'); textFont(moreFont); textSize(40); textAlign(CENTER);
-  text("Hayley's OJ is getting warmer\n    collect her ice!", 520, 320);
-  pop();
-
-  push();
-  fill('black'); textFont(moreFont); textSize(40); textAlign(CENTER);
-  text(`Ice collected: ${score}`.toUpperCase(), 1920, 320);
-  pop();
-
-  image(emoji, mx, my, 100, 100);   // OJ glass follows finger/cursor
-  pop();
-}
-
-// block pull-to-refresh / scroll on touch
-function touchStarted() { return false; }
-function touchMoved()  { return false; }
-
-class IceCube {
-  constructor(x, y) {
-    this.x = x + random(-5, 5);
-    this.y = y;
-    this.speedY = random(2, 5);
-    this.speedX = random(-1, 1);
-    this.rotation = random(0, TWO_PI);
-    this.rotSpeed = random(-0.05, 0.05);
-  }
-  update() { this.y += this.speedY; this.x += this.speedX; this.rotation += this.rotSpeed; }
-  display() {
-    push();
-    translate(this.x, this.y);
-    rotate(this.rotation);
-    textSize(45);           // set here so it isn't affected elsewhere
-    text('🧊', 0, 0);
-    pop();
-  }
-}
-
-*/
-/* VERSION 1.0
-let img;
-let iceCubes = [];
-let emoji;
-let score = 0; // <-- track collected cubes
-
-// Eye Coordinates
-let leftEye = { x: 1215, y: 495 };
-let rightEye = { x: 1386, y: 498 };
-
-function preload() {
-  img = loadImage('Assets/Hayley.png');
-  emoji = loadImage('Assets/OJ.webp');
-  //scoreFont = loadFont('Assets/VT323-Regular.ttf');
-  moreFont = loadFont('Assets/Basteleur-Bold.otf');
-}
-
-function setup() {
-  createCanvas(windowWidth, windowHeight);
-  textAlign(CENTER, CENTER);
-  textSize(45);
-}
-
-function draw() {
-  background(220);
-
-  imageMode(CENTER);
-  image(img, width / 2, height / 2, 1358, 1358);
-
- 
- 
-  // New ice cubes every 15 frames
-  if (frameCount % 15 == 0) {
-    iceCubes.push(new IceCube(leftEye.x, leftEye.y));
-    iceCubes.push(new IceCube(rightEye.x, rightEye.y));
-  }
-
-  // Update and display all active ice cubes
-  for (let i = iceCubes.length - 1; i >= 0; i--) {
-    iceCubes[i].update();
-    iceCubes[i].display();
-
-    // --- CATCH CHECK ---
-    // Distance from the ice cube to the glass (cursor position)
-    let d = dist(iceCubes[i].x, iceCubes[i].y, mouseX, mouseY);
-    if (d < 50) {              // 50 = catch radius, tune to taste
-      iceCubes.splice(i, 1);   // remove the caught cube
-      score++;                 // bump the score
-      continue;                // skip the off-screen check below
-    }
-
-    // Remove ice cubes once they fall off the screen
-    if (iceCubes[i].y > height) {
-      iceCubes.splice(i, 1);
-    }
-  }
-
-  //Peak Coordinate System
-  //fill('black');
-  //noStroke();
-  //text(`${mouseX}, ${mouseY}`, 320, 320); 
-  
-
-
-  
-  
-
-    // Hayley's Headline
-
-  push();
-  fill('black');
-  textFont(moreFont);
-  textSize(40);
-  textAlign(CENTER);
-  text(`Hayley's OJ is getting warmer
-    collect her ice!`, 520, 320);
-  pop();
-
-  
-  
-  // Score Display
-
-  push();
-  fill('black');
-  textFont(moreFont);
-  textSize(40);
-  textAlign(CENTER);
-  text(`Ice collected: ${score}`.toUpperCase(), 1920, 320);
-  pop();
-
-  // OJ glass
-  push();
-  image(emoji, mouseX, mouseY, 100, 100);
-  pop();
-
-  
-}
-
-// Ice Cube Class
-class IceCube {
-  constructor(x, y) {
-    this.x = x + random(-5, 5);
-    this.y = y;
-    this.speedY = random(2, 5);
-    this.speedX = random(-1, 1);
-    this.rotation = random(0, TWO_PI);
-    this.rotSpeed = random(-0.05, 0.05);
-  }
 
   update() {
+    //Move the cube downward and slightly sideways, and keep it spinning
     this.y += this.speedY;
     this.x += this.speedX;
     this.rotation += this.rotSpeed;
@@ -345,10 +195,7 @@ class IceCube {
     push();
     translate(this.x, this.y);
     rotate(this.rotation);
-    text('🧊', 0, 0);
+    image(emojiY, 0, 0, this.size, this.size);
     pop();
   }
-
-  
 }
-*/
